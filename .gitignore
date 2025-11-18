@@ -1,0 +1,33 @@
+# Binaries
+bin/
+sqlproc
+
+# Build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go tooling
+*.test
+*.out
+coverage.txt
+go.work
+
+# Generated code
+examples/backend/generated/
+
+# IDE/editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
