@@ -16,7 +16,7 @@ coverage.txt
 go.work
 
 # Generated code
-examples/backend/generated/
+# examples/backend/generated/
 
 # IDE/editor
 .vscode/

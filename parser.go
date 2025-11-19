@@ -25,6 +25,7 @@ const (
 // Procedure represents a parsed stored procedure/function.
 type Procedure struct {
 	Name    string
+	SQLName string
 	File    string
 	SQL     string
 	Kind    ReturnKind
@@ -49,6 +50,7 @@ type Parser struct {
 	namePattern    *regexp.Regexp
 	paramPattern   *regexp.Regexp
 	returnsPattern *regexp.Regexp
+	funcPattern    *regexp.Regexp
 }
 
 // NewParser creates a new Parser.
@@ -57,6 +59,7 @@ func NewParser() *Parser {
 		namePattern:    regexp.MustCompile(`--\s*name:\s*([A-Za-z0-9_]+)\s*(:(one|many|exec))`),
 		paramPattern:   regexp.MustCompile(`--\s*param:\s*([A-Za-z0-9_]+)\s+(.+)`),
 		returnsPattern: regexp.MustCompile(`--\s*returns:\s*(.+)`),
+		funcPattern:    regexp.MustCompile(`(?is)create\s+(or\s+replace\s+)?function\s+([A-Za-z0-9_\."]+)`),
 	}
 }
 
@@ -123,6 +126,10 @@ func (p *Parser) ParseFile(path string) (*Procedure, error) {
 	}
 
 	proc.SQL = strings.TrimSpace(strings.Join(sqlLines, "\n"))
+	proc.SQLName = p.extractSQLName(proc.SQL)
+	if proc.SQLName == "" {
+		proc.SQLName = proc.Name
+	}
 
 	if err := proc.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid procedure %s: %w", path, err)
@@ -179,6 +186,22 @@ func CollectSQLFiles(root string) ([]string, error) {
 	return files, nil
 }
 
+func (p *Parser) extractSQLName(sql string) string {
+	if sql == "" || p.funcPattern == nil {
+		return ""
+	}
+	match := p.funcPattern.FindStringSubmatch(sql)
+	if len(match) < 3 {
+		return ""
+	}
+	name := strings.TrimSpace(match[2])
+	name = strings.TrimSuffix(name, "(")
+	if strings.HasPrefix(name, `"`) && strings.HasSuffix(name, `"`) && len(name) >= 2 {
+		name = strings.Trim(name, `"`)
+	}
+	return name
+}
+
 // Validate ensures required metadata is present.
 func (p *Procedure) Validate() error {
 	if p.Name == "" {
@@ -188,6 +211,9 @@ func (p *Procedure) Validate() error {
 	case ReturnOne, ReturnMany, ReturnExec:
 	default:
 		return fmt.Errorf("unknown return kind %q", p.Kind)
+	}
+	if p.SQLName == "" {
+		return errors.New("unable to determine SQL function name")
 	}
 	if p.Kind != ReturnExec && len(p.Returns) == 0 {
 		return errors.New("returning procedure must declare -- returns columns")

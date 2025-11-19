@@ -6,6 +6,7 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -45,7 +46,7 @@ func (cg *CodeGenerator) render(tmplStr string, procs []*Procedure) []byte {
 		"ParamSignature":  paramSignature,
 		"ArgList":         argList,
 		"PlaceholderList": placeholderList,
-		"SelectSQL":       selectSQL,
+		"QueryLiteral":    queryLiteral,
 		"ScanTargets":     scanTargets,
 		"HasParams":       func(p *Procedure) bool { return len(p.Params) > 0 },
 	}).Parse(tmplStr))
@@ -189,12 +190,20 @@ func placeholderList(p *Procedure) string {
 	return strings.Join(list, ", ")
 }
 
+func sqlName(p *Procedure) string {
+	if p.SQLName != "" {
+		return p.SQLName
+	}
+	return p.Name
+}
+
 func callSQL(p *Procedure) string {
 	args := placeholderList(p)
+	name := sqlName(p)
 	if args == "" {
-		return fmt.Sprintf("%s()", p.Name)
+		return fmt.Sprintf("%s()", name)
 	}
-	return fmt.Sprintf("%s(%s)", p.Name, args)
+	return fmt.Sprintf("%s(%s)", name, args)
 }
 
 func selectSQL(p *Procedure) string {
@@ -202,6 +211,11 @@ func selectSQL(p *Procedure) string {
 		return "SELECT " + callSQL(p)
 	}
 	return "SELECT * FROM " + callSQL(p)
+}
+
+func queryLiteral(p *Procedure) string {
+	sql := selectSQL(p)
+	return strconv.Quote(sql)
 }
 
 func scanTargets(p *Procedure) string {
@@ -264,7 +278,7 @@ import "context"
 
 {{ range .Procedures -}}
 func (q *Queries) {{ GoName .Name }}(ctx context.Context{{ ParamSignature . }}) {{ if ReturnKind . ":exec" }}error{{ else if ReturnKind . ":one" }}({{ GoName .Name }}Row, error){{ else }}([]{{ GoName .Name }}Row, error){{ end }} {
-	query := "{{ SelectSQL . }}"
+	query := {{ QueryLiteral . }}
 	{{ if ReturnKind . ":exec" -}}
 	_, err := q.db.ExecContext(ctx, query{{ ArgList . }})
 	return err
@@ -282,7 +296,7 @@ func (q *Queries) {{ GoName .Name }}(ctx context.Context{{ ParamSignature . }}) 
 	}
 	defer rows.Close()
 
-	var result []{{ GoName .Name }}Row
+	result := make([]{{ GoName .Name }}Row, 0)
 	for rows.Next() {
 		var dest {{ GoName .Name }}Row
 		if err := rows.Scan({{ ScanTargets . }}); err != nil {

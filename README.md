@@ -3,6 +3,7 @@
 `sqlproc` is a Go library and CLI that turns stored procedure SQL files into type-safe Go code. Point it at a directory of `.sql` files that include lightweight metadata comments and it will:
 
 - migrate the stored procedures into your database
+- optionally run plain SQL schema migrations with version tracking
 - generate Go structs for procedure parameters and return rows
 - emit type-safe helper functions to execute those procedures and return typed responses
 - power a real backend — an example REST API is included in `examples/backend`
@@ -10,13 +11,14 @@
 ## Quick start
 
 ```bash
-git clone https://github.com/bibek/sqlproc.git
+git clone https://github.com/Bibek99/sqlproc.git
 cd sqlproc
 go install ./cmd/sqlproc
 
-# Run migrations + generate code
+# Run schema + procedure migrations, then generate code
 sqlproc \
   -db "postgres://postgres:postgres@localhost:5432/sqlproc?sslmode=disable" \
+  -migrations ./examples/backend/migrations \
   -files ./examples/backend/sql \
   -out ./examples/backend/generated \
   -pkg generated
@@ -38,6 +40,10 @@ END;
 $$ LANGUAGE plpgsql;
 ```
 
+### Schema migrations
+
+For `CREATE TABLE`, `ALTER TABLE`, and other DDL, drop raw SQL files into a directory (for example `migrations/001_init.sql`, `migrations/002_add_index.sql`). Provide that directory via `-migrations` and `sqlproc` will execute each file once, recording applied versions inside `sqlproc_schema_migrations`.
+
 ### From SQL to Go
 
 The generated package exposes a `Queries` type with one method per procedure:
@@ -54,7 +60,7 @@ err := queries.DeleteUser(ctx, 42)
 
 A runnable REST API lives in `examples/backend`. It:
 
-1. Ensures the `users` table exists
+1. Runs schema migrations from `examples/backend/migrations`
 2. Migrates the procedures found in `examples/backend/sql`
 3. Uses the generated package (`examples/backend/generated`) to serve HTTP routes
 
@@ -82,6 +88,8 @@ Usage: sqlproc -files <path>[,<path>...] [options]
         Database connection string (postgres)
   -files string
         Comma-separated list of SQL files or directories
+  -migrations string
+        Comma-separated list of schema migration SQL files or directories
   -out string
         Output directory for generated code (default "./generated")
   -pkg string
@@ -103,4 +111,3 @@ go run ./examples/backend
 ## License
 
 MIT
-

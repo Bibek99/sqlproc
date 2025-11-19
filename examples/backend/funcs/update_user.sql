@@ -1,10 +1,10 @@
 -- name: UpdateUser :one
 -- param: user_id int
 -- param: email text
--- returns: id int, name text, email text, created_at timestamp
+-- returns: id int, name text, email text, created_at timestamptz
 
 CREATE OR REPLACE FUNCTION update_user(p_user_id INT, p_email TEXT)
-RETURNS TABLE(id INT, name TEXT, email TEXT, created_at TIMESTAMP) AS $$
+RETURNS TABLE(id INT, name TEXT, email TEXT, created_at TIMESTAMPTZ) AS $$
 BEGIN
     RETURN QUERY
     UPDATE users

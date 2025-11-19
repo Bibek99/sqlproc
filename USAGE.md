@@ -8,7 +8,7 @@ Store each procedure/function in its own `.sql` file and add metadata comments:
 -- name: CreateUser :one
 -- param: name text
 -- param: email text
--- returns: id int, name text, email text, created_at timestamp
+-- returns: id int, name text, email text, created_at timestamptz
 ```
 
 Supported return markers:
@@ -22,10 +22,13 @@ Supported return markers:
 ```
 sqlproc \
   -db "postgres://postgres:postgres@localhost:5432/sqlproc?sslmode=disable" \
+  -migrations ./path/to/schema/migrations \
   -files ./path/to/sql \
   -out ./generated \
   -pkg generated
 ```
+
+Schema migration files are plain SQL statements named with an increasing numeric prefix such as `001_init.sql`, `002_add_index.sql`. They run once and are tracked inside the `sqlproc_schema_migrations` table.
 
 Flags:
 
@@ -33,6 +36,7 @@ Flags:
 | ---- | ----------- |
 | `-db` | PostgreSQL connection string (omit with `-skip-migrate`) |
 | `-files` | Comma-separated paths (files or directories) containing SQL |
+| `-migrations` | Comma-separated paths containing schema migration SQL |
 | `-out` | Output folder for generated Go code |
 | `-pkg` | Package name to use inside generated files |
 | `-skip-migrate` | Only generate code, do not execute SQL |
@@ -55,7 +59,7 @@ err := queries.DeleteUser(ctx, user.Id)
 
 The sample backend (`examples/backend`) demonstrates:
 
-1. Auto-running migrations on start-up
+1. Auto-running schema migrations and stored procedures on start-up
 2. Serving REST endpoints on top of generated code
 3. Simple JSON handlers using standard `net/http`
 

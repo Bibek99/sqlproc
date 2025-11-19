@@ -35,6 +35,9 @@ $$ LANGUAGE plpgsql;
 	if proc.Kind != ReturnOne {
 		t.Fatalf("expected ReturnOne, got %s", proc.Kind)
 	}
+	if proc.SQLName != "get_user" {
+		t.Fatalf("expected SQL name get_user, got %s", proc.SQLName)
+	}
 	if len(proc.Params) != 1 || proc.Params[0].Name != "user_id" {
 		t.Fatalf("unexpected params: %+v", proc.Params)
 	}
@@ -70,4 +73,3 @@ func TestResolveFiles(t *testing.T) {
 		t.Fatalf("expected %d files, got %d", len(files), len(resolved))
 	}
 }
-

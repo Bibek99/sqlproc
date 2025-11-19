@@ -9,13 +9,13 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/bibek/sqlproc"
-	"github.com/bibek/sqlproc/examples/backend/generated"
+	"github.com/Bibek99/sqlproc"
+	"github.com/Bibek99/sqlproc/examples/backend/generated"
 	_ "github.com/lib/pq"
 )
 
 func main() {
-	dbURL := envOrDefault("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/sqlproc?sslmode=disable")
+	dbURL := envOrDefault("DATABASE_URL", "postgres://bibek@localhost:5432/sqlproc?sslmode=disable")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
@@ -27,8 +27,8 @@ func main() {
 		log.Fatalf("ping db: %v", err)
 	}
 
-	if err := ensureSchema(ctx, db); err != nil {
-		log.Fatalf("ensure schema: %v", err)
+	if err := migrateSchema(ctx, db); err != nil {
+		log.Fatalf("schema migrations: %v", err)
 	}
 
 	if err := migrateProcedures(ctx, db); err != nil {
@@ -158,20 +158,20 @@ func writeJSON(w http.ResponseWriter, v any, status int) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func ensureSchema(ctx context.Context, db *sql.DB) error {
-	const sqlStmt = `
-CREATE TABLE IF NOT EXISTS users (
-	id SERIAL PRIMARY KEY,
-	name TEXT NOT NULL,
-	email TEXT NOT NULL UNIQUE,
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);`
-	_, err := db.ExecContext(ctx, sqlStmt)
-	return err
+func migrateSchema(ctx context.Context, db *sql.DB) error {
+	files, err := sqlproc.ResolveFiles([]string{"examples/backend/migrations"})
+	if err != nil {
+		return err
+	}
+	migrations, err := sqlproc.LoadSchemaMigrations(files)
+	if err != nil {
+		return err
+	}
+	return sqlproc.NewSchemaMigrator(db).Migrate(ctx, migrations)
 }
 
 func migrateProcedures(ctx context.Context, db *sql.DB) error {
-	files, err := sqlproc.ResolveFiles([]string{"examples/backend/sql"})
+	files, err := sqlproc.ResolveFiles([]string{"examples/backend/funcs"})
 	if err != nil {
 		return err
 	}

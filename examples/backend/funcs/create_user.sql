@@ -1,10 +1,10 @@
 -- name: CreateUser :one
 -- param: name text
 -- param: email text
--- returns: id int, name text, email text, created_at timestamp
+-- returns: id int, name text, email text, created_at timestamptz
 
 CREATE OR REPLACE FUNCTION create_user(p_name TEXT, p_email TEXT)
-RETURNS TABLE(id INT, name TEXT, email TEXT, created_at TIMESTAMP) AS $$
+RETURNS TABLE(id INT, name TEXT, email TEXT, created_at TIMESTAMPTZ) AS $$
 BEGIN
     RETURN QUERY
     INSERT INTO users (name, email)
