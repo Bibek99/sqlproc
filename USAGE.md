@@ -42,6 +42,28 @@ Flags:
 | `-skip-migrate` | Only generate code, do not execute SQL |
 | `-skip-generate` | Only run migrations, do not emit Go code |
 
+## 2b. Embed inside your Go service
+
+You can run the exact same pipeline from Go by importing the module:
+
+```go
+ctx := context.Background()
+db, _ := sql.Open("postgres", os.Getenv("DATABASE_URL"))
+
+_, err := sqlproc.Run(ctx, sqlproc.PipelineOptions{
+	SQLInputs:       []string{"./db/funcs"},
+	MigrationInputs: []string{"./db/migrations"},
+	OutputDir:       "./internal/db",
+	PackageName:     "db",
+	DB:              db,
+})
+if err != nil {
+	log.Fatalf("bootstrap db: %v", err)
+}
+```
+
+Supplying `DBURL` instead of `DB` works as long as the driver (e.g. `_ "github.com/lib/pq"`) is imported.
+
 ## 3. Use the generated package
 
 ```go

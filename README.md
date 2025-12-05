@@ -24,6 +24,34 @@ sqlproc \
   -pkg generated
 ```
 
+## Use it as a Go module
+
+Embed `sqlproc` directly inside your backend to orchestrate migrations and code generation programmatically:
+
+```go
+package dbbootstrap
+
+import (
+	"context"
+	"database/sql"
+
+	"github.com/Bibek99/sqlproc"
+)
+
+func Prepare(ctx context.Context, db *sql.DB) error {
+	_, err := sqlproc.Run(ctx, sqlproc.PipelineOptions{
+		SQLInputs:       []string{"./db/funcs"},
+		MigrationInputs: []string{"./db/migrations"},
+		OutputDir:       "./internal/db",
+		PackageName:     "db",
+		DB:              db,
+	})
+	return err
+}
+```
+
+Provide either an existing `*sql.DB` (as above) or a `DBURL` + driver name. When `SkipGenerate` is `false`, the Go files are emitted to `OutputDir`, making the package ready for your module.
+
 ### SQL metadata format
 
 Each stored procedure/function should include header comments so the parser can infer types:

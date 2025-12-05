@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
-	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -29,53 +27,34 @@ func main() {
 		log.Fatal("missing -files argument")
 	}
 
-	inputs := splitInputs(*filesArg)
-	files, err := sqlproc.ResolveFiles(inputs)
-	if err != nil {
-		log.Fatalf("resolve files: %v", err)
-	}
-
-	log.Printf("Found %d SQL file(s)\n", len(files))
-
-	var schemaMigrations []*sqlproc.SchemaMigration
-	if *migrationsArg != "" {
-		migrationInputs := splitInputs(*migrationsArg)
-		migrationFiles, err := sqlproc.ResolveFiles(migrationInputs)
-		if err != nil {
-			log.Fatalf("resolve migrations: %v", err)
-		}
-		schemaMigrations, err = sqlproc.LoadSchemaMigrations(migrationFiles)
-		if err != nil {
-			log.Fatalf("load migrations: %v", err)
-		}
-		log.Printf("Found %d schema migration(s)\n", len(schemaMigrations))
-	}
-
-	var procs []*sqlproc.Procedure
-	parser := sqlproc.NewParser()
-	if procs, err = parser.ParseFiles(files); err != nil {
-		log.Fatalf("parse sql: %v", err)
+	sqlInputs := splitInputs(*filesArg)
+	migrationInputs := splitInputs(*migrationsArg)
+	if !*skipMigrate && *dbURL == "" {
+		log.Fatal("-db is required unless -skip-migrate is set")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if !*skipMigrate {
-		if *dbURL == "" {
-			log.Fatal("-db is required unless -skip-migrate is set")
-		}
-		if err := migrate(ctx, *dbURL, schemaMigrations, procs); err != nil {
-			log.Fatalf("migration failed: %v", err)
-		}
-		log.Println("✅ Migration complete")
+	result, err := sqlproc.Run(ctx, sqlproc.PipelineOptions{
+		SQLInputs:       sqlInputs,
+		MigrationInputs: migrationInputs,
+		OutputDir:       *outputDir,
+		PackageName:     *packageName,
+		SkipMigrate:     *skipMigrate,
+		SkipGenerate:    *skipGenerate,
+		DBURL:           *dbURL,
+	})
+	if err != nil {
+		log.Fatalf("sqlproc failed: %v", err)
 	}
 
-	if !*skipGenerate {
-		gen := sqlproc.NewGenerator(sqlproc.GeneratorOptions{PackageName: *packageName})
-		if err := gen.Generate(procs, *outputDir); err != nil {
-			log.Fatalf("code generation failed: %v", err)
-		}
-		log.Printf("✅ Code generated into %s\n", *outputDir)
+	log.Printf("✅ Processed %d procedure(s)", len(result.Procedures))
+	if len(result.SchemaMigrations) > 0 {
+		log.Printf("✅ Applied %d schema migration(s)", len(result.SchemaMigrations))
+	}
+	if len(result.GeneratedFiles) > 0 {
+		log.Printf("✅ Generated files: %s", strings.Join(result.GeneratedFiles, ", "))
 	}
 }
 
@@ -89,23 +68,4 @@ func splitInputs(input string) []string {
 		}
 	}
 	return cleaned
-}
-
-func migrate(ctx context.Context, url string, schemaMigrations []*sqlproc.SchemaMigration, procs []*sqlproc.Procedure) error {
-	db, err := sql.Open("postgres", url)
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer db.Close()
-
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping db: %w", err)
-	}
-	if len(schemaMigrations) > 0 {
-		if err := sqlproc.NewSchemaMigrator(db).Migrate(ctx, schemaMigrations); err != nil {
-			return fmt.Errorf("schema migrations: %w", err)
-		}
-	}
-	migrator := sqlproc.NewMigrator(db)
-	return migrator.Migrate(ctx, procs)
 }
