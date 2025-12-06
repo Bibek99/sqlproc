@@ -49,6 +49,7 @@ func (cg *CodeGenerator) render(tmplStr string, procs []*Procedure) []byte {
 		"QueryLiteral":    queryLiteral,
 		"ScanTargets":     scanTargets,
 		"HasParams":       func(p *Procedure) bool { return len(p.Params) > 0 },
+		"JSONTag":         jsonTag,
 	}).Parse(tmplStr))
 
 	var buf bytes.Buffer
@@ -155,6 +156,14 @@ func sqlTypeToGo(dbType string) string {
 	default:
 		return "interface{}"
 	}
+}
+
+func jsonTag(name string) string {
+	tagValue := toCamel(name, false)
+	if tagValue == "" {
+		return ""
+	}
+	return fmt.Sprintf("`json:\"%s\"`", tagValue)
 }
 
 func paramSignature(p *Procedure) string {
@@ -265,10 +274,11 @@ import "time"
 {{ if not (ReturnKind . ":exec") -}}
 type {{ GoName .Name }}Row struct {
 	{{- range .Returns }}
-	{{ GoField .Name }} {{ GoType .DBType }}
+	{{ GoField .Name }} {{ GoType .DBType }} {{ JSONTag .Name }}
 	{{- end }}
 }
 {{ end -}}
+
 {{ end }}
 `
 

@@ -20,17 +20,40 @@ func main() {
 		packageName   = flag.String("pkg", "generated", "Go package name for generated code")
 		skipMigrate   = flag.Bool("skip-migrate", false, "Skip database migration step")
 		skipGenerate  = flag.Bool("skip-generate", false, "Skip code generation")
+		schemaModels  = flag.Bool("schema-models", false, "Generate Go structs by introspecting the database schema")
+		schemaOut     = flag.String("schema-out", "", "Directory for schema model files (defaults to -out)")
+		schemaPkg     = flag.String("schema-pkg", "", "Package name for schema models (defaults to -pkg)")
+		schemaList    = flag.String("schemas", "public", "Comma-separated database schemas to introspect (use * for all)")
+		schemaTag     = flag.String("schema-tag", "db,json", "Comma-separated struct tag keys (e.g. \"db,json\")")
 	)
 	flag.Parse()
 
-	if *filesArg == "" {
-		log.Fatal("missing -files argument")
+	if *filesArg == "" && strings.TrimSpace(*migrationsArg) == "" && !*schemaModels {
+		log.Fatal("provide -files, -migrations, or enable -schema-models")
 	}
 
 	sqlInputs := splitInputs(*filesArg)
 	migrationInputs := splitInputs(*migrationsArg)
 	if !*skipMigrate && *dbURL == "" {
 		log.Fatal("-db is required unless -skip-migrate is set")
+	}
+
+	var schemaOpts *sqlproc.SchemaModelOptions
+	if *schemaModels {
+		schemas := splitInputs(*schemaList)
+		if len(schemas) == 0 && strings.TrimSpace(*schemaList) == "" {
+			schemas = nil
+		}
+		if len(schemas) == 1 && schemas[0] == "*" {
+			schemas = nil
+		}
+		tag := strings.TrimSpace(*schemaTag)
+		schemaOpts = &sqlproc.SchemaModelOptions{
+			Schemas:     schemas,
+			OutputDir:   firstNonEmpty(*schemaOut, *outputDir),
+			PackageName: firstNonEmpty(*schemaPkg, *packageName),
+			StructTag:   tag,
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -44,6 +67,7 @@ func main() {
 		SkipMigrate:     *skipMigrate,
 		SkipGenerate:    *skipGenerate,
 		DBURL:           *dbURL,
+		SchemaModels:    schemaOpts,
 	})
 	if err != nil {
 		log.Fatalf("sqlproc failed: %v", err)
@@ -55,6 +79,9 @@ func main() {
 	}
 	if len(result.GeneratedFiles) > 0 {
 		log.Printf("✅ Generated files: %s", strings.Join(result.GeneratedFiles, ", "))
+	}
+	if len(result.SchemaFiles) > 0 {
+		log.Printf("✅ Schema model files: %s", strings.Join(result.SchemaFiles, ", "))
 	}
 }
 
@@ -68,4 +95,13 @@ func splitInputs(input string) []string {
 		}
 	}
 	return cleaned
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

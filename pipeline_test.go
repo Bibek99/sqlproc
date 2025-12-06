@@ -84,6 +84,50 @@ func TestRun_WithDBAndMigrations(t *testing.T) {
 	}
 }
 
+func TestRun_SchemaModelsOnly(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	queryRegex := "SELECT table_schema, table_name, column_name, data_type, udt_name, is_nullable"
+	rows := sqlmock.NewRows([]string{"table_schema", "table_name", "column_name", "data_type", "udt_name", "is_nullable"}).
+		AddRow("public", "users", "id", "integer", "int4", "NO").
+		AddRow("public", "users", "email", "text", "text", "YES")
+	mock.ExpectQuery(queryRegex).WithArgs("public").WillReturnRows(rows)
+
+	result, err := Run(context.Background(), PipelineOptions{
+		SkipMigrate:  true,
+		DB:           db,
+		SchemaModels: &SchemaModelOptions{Schemas: []string{"public"}, OutputDir: dir, PackageName: "models"},
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if len(result.SchemaFiles) != 1 {
+		t.Fatalf("expected 1 schema model file, got %d", len(result.SchemaFiles))
+	}
+	if _, err := os.Stat(result.SchemaFiles[0]); err != nil {
+		t.Fatalf("expected schema file to exist: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unmet expectations: %v", err)
+	}
+}
+
+func TestRun_SchemaModelsRequireDB(t *testing.T) {
+	t.Parallel()
+	_, err := Run(context.Background(), PipelineOptions{
+		SchemaModels: &SchemaModelOptions{Schemas: []string{"public"}, OutputDir: "./tmp"},
+	})
+	if err == nil {
+		t.Fatal("expected error when schema models requested without DB")
+	}
+}
+
 func writeTestFile(t *testing.T, dir, name, contents string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)

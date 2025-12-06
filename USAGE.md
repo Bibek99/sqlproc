@@ -41,6 +41,11 @@ Flags:
 | `-pkg` | Package name to use inside generated files |
 | `-skip-migrate` | Only generate code, do not execute SQL |
 | `-skip-generate` | Only run migrations, do not emit Go code |
+| `-schema-models` | Introspect tables and emit Go structs after migrations |
+| `-schema-out` | Output directory for schema structs (default `-out`) |
+| `-schema-pkg` | Package name for schema structs (default `-pkg`) |
+| `-schemas` | Schemas to introspect (comma-separated, `*` = all user schemas) |
+| `-schema-tag` | Struct tag keys (comma-separated, default `db,json`) |
 
 ## 2b. Embed inside your Go service
 
@@ -63,6 +68,37 @@ if err != nil {
 ```
 
 Supplying `DBURL` instead of `DB` works as long as the driver (e.g. `_ "github.com/lib/pq"`) is imported.
+
+## 2c. Generate models directly from schema migrations
+
+Enable schema introspection to keep your Go structs synchronized with table DDL, even when no stored procedure files are present:
+
+```bash
+sqlproc \
+  -db "$DATABASE_URL" \
+  -migrations ./db/migrations \
+  -schema-models \
+  -schema-out ./internal/db \
+  -schema-pkg db \
+  -schemas public \
+  -schema-tag "db,json"
+```
+
+Or from Go:
+
+```go
+_, err := sqlproc.Run(ctx, sqlproc.PipelineOptions{
+	MigrationInputs: []string{"./db/migrations"},
+	DB:              db,
+	SkipGenerate:    true,
+	SchemaModels: &sqlproc.SchemaModelOptions{
+		OutputDir:   "./internal/db",
+		PackageName: "db",
+		Schemas:     []string{"public"},
+		StructTag:   "db,json",
+	},
+})
+```
 
 ## 3. Use the generated package
 

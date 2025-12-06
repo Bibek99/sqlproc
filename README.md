@@ -52,6 +52,38 @@ func Prepare(ctx context.Context, db *sql.DB) error {
 
 Provide either an existing `*sql.DB` (as above) or a `DBURL` + driver name. When `SkipGenerate` is `false`, the Go files are emitted to `OutputDir`, making the package ready for your module.
 
+### Schema-driven model generation
+
+If you only have raw schema migrations (no stored procedure files), `sqlproc` can introspect the database after migrations and emit Go structs that mirror your tables:
+
+```bash
+sqlproc \
+  -db "$DATABASE_URL" \
+  -migrations ./db/migrations \
+  -schema-models \
+  -schema-out ./internal/db \
+  -schema-pkg db \
+  -schemas public
+```
+
+Or via Go:
+
+```go
+_, err := sqlproc.Run(ctx, sqlproc.PipelineOptions{
+	SkipGenerate:    true,            // no stored procedure inputs
+	MigrationInputs: []string{"./db/migrations"},
+	DB:              db,
+	SchemaModels: &sqlproc.SchemaModelOptions{
+		OutputDir:   "./internal/db",
+		PackageName: "db",
+		Schemas:     []string{"public"},
+		StructTag:   "db,json",
+	},
+})
+```
+
+Every time your migrations run (including `ALTER TABLE` updates), the introspector re-reads `information_schema` and regenerates the structs so your models stay in sync.
+
 ### SQL metadata format
 
 Each stored procedure/function should include header comments so the parser can infer types:
@@ -126,6 +158,16 @@ Usage: sqlproc -files <path>[,<path>...] [options]
         Skip code generation
   -skip-migrate
         Skip database migration
+  -schema-models
+        Introspect the database schema and emit Go structs
+  -schema-out string
+        Output directory for schema models (default matches -out)
+  -schema-pkg string
+        Package name for schema models (default matches -pkg)
+  -schemas string
+        Database schemas to introspect (comma-separated, use * for all) (default "public")
+  -schema-tag string
+        Struct tag keys applied to schema models (default "db,json")
 ```
 
 ## Development

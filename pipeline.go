@@ -41,6 +41,8 @@ type PipelineOptions struct {
 	GeneratorOptions GeneratorOptions
 	// Logger emits progress logs. Defaults to a standard logger writing to stdout.
 	Logger Logger
+	// SchemaModels controls schema-introspection-based model generation.
+	SchemaModels *SchemaModelOptions
 }
 
 // PipelineResult captures the work performed by Run.
@@ -49,6 +51,8 @@ type PipelineResult struct {
 	SchemaMigrations []*SchemaMigration
 	OutputDir        string
 	GeneratedFiles   []string
+	SchemaTables     []*Table
+	SchemaFiles      []string
 }
 
 // Run executes the configured pipeline: resolve -> parse -> migrate -> generate.
@@ -56,8 +60,8 @@ func Run(ctx context.Context, opts PipelineOptions) (*PipelineResult, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if len(opts.SQLInputs) == 0 {
-		return nil, errors.New("sqlproc: at least one SQL input path is required")
+	if len(opts.SQLInputs) == 0 && len(opts.MigrationInputs) == 0 && opts.SchemaModels == nil {
+		return nil, errors.New("sqlproc: provide SQL inputs, migrations, or schema model options")
 	}
 
 	logWriter := opts.Logger
@@ -70,15 +74,20 @@ func Run(ctx context.Context, opts PipelineOptions) (*PipelineResult, error) {
 		parser = NewParser()
 	}
 
-	sqlFiles, err := ResolveFiles(opts.SQLInputs)
-	if err != nil {
-		return nil, fmt.Errorf("resolve SQL inputs: %w", err)
-	}
-	logWriter.Printf("resolved %d SQL file(s)", len(sqlFiles))
+	var procs []*Procedure
+	if len(opts.SQLInputs) > 0 {
+		sqlFiles, err := ResolveFiles(opts.SQLInputs)
+		if err != nil {
+			return nil, fmt.Errorf("resolve SQL inputs: %w", err)
+		}
+		logWriter.Printf("resolved %d SQL file(s)", len(sqlFiles))
 
-	procs, err := parser.ParseFiles(sqlFiles)
-	if err != nil {
-		return nil, fmt.Errorf("parse SQL files: %w", err)
+		procs, err = parser.ParseFiles(sqlFiles)
+		if err != nil {
+			return nil, fmt.Errorf("parse SQL files: %w", err)
+		}
+	} else {
+		logWriter.Printf("no stored procedure inputs provided; skipping procedure parsing")
 	}
 
 	var schemaMigrations []*SchemaMigration
@@ -106,7 +115,12 @@ func Run(ctx context.Context, opts PipelineOptions) (*PipelineResult, error) {
 		if db == nil {
 			return nil, errors.New("sqlproc: DB or DBURL must be provided when migrations are enabled")
 		}
-		logWriter.Printf("applying %d stored procedure(s)", len(procs))
+		if len(schemaMigrations) > 0 {
+			logWriter.Printf("applying %d schema migration(s)", len(schemaMigrations))
+		}
+		if len(procs) > 0 {
+			logWriter.Printf("applying %d stored procedure(s)", len(procs))
+		}
 		if err := runMigrations(ctx, db, schemaMigrations, procs); err != nil {
 			return nil, err
 		}
@@ -115,6 +129,14 @@ func Run(ctx context.Context, opts PipelineOptions) (*PipelineResult, error) {
 	outputDir := opts.OutputDir
 	if outputDir == "" {
 		outputDir = "./generated"
+	}
+
+	defaultPackage := opts.PackageName
+	if defaultPackage == "" {
+		defaultPackage = opts.GeneratorOptions.PackageName
+	}
+	if defaultPackage == "" {
+		defaultPackage = "generated"
 	}
 
 	var generatedFiles []string
@@ -126,18 +148,46 @@ func Run(ctx context.Context, opts PipelineOptions) (*PipelineResult, error) {
 		if pkgName == "" {
 			pkgName = "generated"
 		}
-		genOpts := opts.GeneratorOptions
-		genOpts.PackageName = pkgName
-		gen := NewGenerator(genOpts)
-		if err := gen.Generate(procs, outputDir); err != nil {
-			return nil, fmt.Errorf("generate Go code: %w", err)
+		if len(procs) == 0 {
+			logWriter.Printf("no procedures to generate; skipping code emission")
+		} else {
+			genOpts := opts.GeneratorOptions
+			genOpts.PackageName = pkgName
+			gen := NewGenerator(genOpts)
+			if err := gen.Generate(procs, outputDir); err != nil {
+				return nil, fmt.Errorf("generate Go code: %w", err)
+			}
+			generatedFiles = []string{
+				filepath.Join(outputDir, "db.go"),
+				filepath.Join(outputDir, "models.go"),
+				filepath.Join(outputDir, "queries.go"),
+			}
+			logWriter.Printf("generated Go package %q in %s", pkgName, outputDir)
 		}
-		generatedFiles = []string{
-			filepath.Join(outputDir, "db.go"),
-			filepath.Join(outputDir, "models.go"),
-			filepath.Join(outputDir, "queries.go"),
+	}
+
+	var schemaTables []*Table
+	var schemaFiles []string
+	if opts.SchemaModels != nil {
+		if db == nil {
+			return nil, errors.New("sqlproc: schema model generation requires a database connection or DBURL")
 		}
-		logWriter.Printf("generated Go package %q in %s", pkgName, outputDir)
+		schemaOpts := opts.SchemaModels.withDefaults(outputDir, defaultPackage)
+		var err error
+		schemaTables, err = loadSchemaTables(ctx, db, schemaOpts)
+		if err != nil {
+			return nil, fmt.Errorf("introspect schema: %w", err)
+		}
+		generator := &SchemaModelGenerator{Options: schemaOpts}
+		schemaFiles, err = generator.Generate(schemaTables)
+		if err != nil {
+			return nil, fmt.Errorf("generate schema models: %w", err)
+		}
+		if len(schemaTables) > 0 {
+			logWriter.Printf("generated %d schema model(s) in %s", len(schemaTables), schemaOpts.OutputDir)
+		} else {
+			logWriter.Printf("no tables discovered for schema model generation")
+		}
 	}
 
 	return &PipelineResult{
@@ -145,6 +195,8 @@ func Run(ctx context.Context, opts PipelineOptions) (*PipelineResult, error) {
 		SchemaMigrations: schemaMigrations,
 		OutputDir:        outputDir,
 		GeneratedFiles:   generatedFiles,
+		SchemaTables:     schemaTables,
+		SchemaFiles:      schemaFiles,
 	}, nil
 }
 
